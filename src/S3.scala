@@ -7,21 +7,85 @@ object HTTP {
     sdf.format(date)
   }
 
+  def readAll(in: java.io.InputStream): Array[Byte] = {
+    val out = new java.io.ByteArrayOutputStream()
+    val buf = new Array[Byte](1024)
+    var len = 0
+    while (len >= 0) {
+      out.write(buf, 0, len)
+      len = in.read(buf, 0, buf.length)
+    }
+    out.toByteArray
+  }
+
+  def md5(bytes: Array[Byte]): String = {
+    val md = java.security.MessageDigest.getInstance("MD5")
+    md.update(bytes)
+    new String(Base64.encode(md.digest))
+  }
+
   def now(): String =
     date(new java.util.Date())
 }
 
-class Item(name: String, lastModified: String, size: Int) {
+class Item(
+    bucket: Bucket,
+    name: String,
+    private var lastModified: Option[String],
+    private var size: Option[Int]) {
+  import java.io.InputStream
+
+  def get(): InputStream = {
+    val conn = bucket.s3.getconn("GET", bucket.name, "/"+name)
+    // TODO: set lastModified, size
+    conn.getInputStream
+  }
+
+  def set(in: String): Unit =
+    set(in.getBytes, "text/plain")
+
+  def set(in: InputStream): Unit =
+    set(in, "application/x-download")
+
+  def set(in: InputStream, contentType: String): Unit =
+    set(HTTP.readAll(in), contentType)
+
+  def set(in: Array[Byte]): Unit =
+    set(in, "application/x-download")
+
+  def set(in: Array[Byte], contentType: String): Unit = {
+    val md5 = HTTP.md5(in)
+    val conn = bucket.s3.getconn(
+      "PUT", contentType, md5, bucket.name, "/"+name, "")
+    conn.setRequestProperty("Content-Length", in.length.toString)
+    conn.setRequestProperty("Content-MD5", md5)
+    conn.setRequestProperty("Content-Type", contentType)
+    conn.setFixedLengthStreamingMode(in.length)
+    conn.setDoOutput(true)
+    val out = conn.getOutputStream
+    out.write(in, 0, in.length)
+    out.flush
+    if (conn.getResponseCode != 200) {
+      bucket.s3.getxml(conn)
+    }
+    out.close
+  }
+
   override def toString() = "Item("+name+")"
 }
 
-class Bucket(private val s3: S3, name: String) extends Iterable[Item] {
+class Bucket(val s3: S3, val name: String) extends Iterable[Item] {
+  def apply(itemName: String) = {
+    new Item(this, itemName, None, None)
+  }
+
   override def elements(): Iterator[Item] = {
     def genItem(contents: xml.Node): Item = {
       new Item(
+        this,
         (contents \\ "Key").text,
-        (contents \\ "LastModified").text,
-        (contents \\ "Size").text.toInt
+        Some((contents \\ "LastModified").text),
+        Some((contents \\ "Size").text.toInt)
       )
     }
 
@@ -30,7 +94,7 @@ class Bucket(private val s3: S3, name: String) extends Iterable[Item] {
         case None       => ""
         case Some(mkr)  => "?marker="+mkr
       }
-      val conn = s3.getconn("GET", "", name, "/", qs)
+      val conn = s3.getconn("GET", "", "", name, "/", qs)
       s3.getxml(conn)
     }
 
@@ -87,8 +151,8 @@ class S3(awsKeyId: String, awsSecretKey: String) extends Iterable[Bucket] {
       bucket: String, resource: String) = {
     val toSign = (
       verb        + "\n" +
-      contentType + "\n" +
       contentMD5  + "\n" +
+      contentType + "\n" +
       date        + "\n" +
       "/" + bucket + resource
     )
@@ -96,20 +160,26 @@ class S3(awsKeyId: String, awsSecretKey: String) extends Iterable[Bucket] {
     "AWS " + awsKeyId + ":" + calcHMAC(toSign)
   }
 
-  def getconn(
-      verb: String, contentType: String,
-      bucket: String, resource: String, querystring: String) = {
+  private[zentus] def getconn(
+      verb: String, bucket: String, resource: String): HttpURLConnection =
+    getconn(verb, "", "", bucket, resource, "")
+
+  private[zentus] def getconn(
+      verb: String, contentType: String, contentMD5: String,
+      bucket: String, resource: String, querystring: String
+      ): HttpURLConnection = {
     val date = HTTP.now
     val url = "http://" + bucket + ".s3.amazonaws.com" + resource + querystring
     val conn = new URL(url).openConnection.asInstanceOf[HttpURLConnection]
-    val auth = authorization(verb, "", contentType, date, bucket, resource)
+    val auth = authorization(
+      verb, contentMD5, contentType, date, bucket, resource)
     conn.setRequestMethod(verb)
     conn.setRequestProperty("Date", date)
     conn.setRequestProperty("Authorization", auth)
     conn
   }
 
-  def getxml(conn: HttpURLConnection) = {
+  private[zentus] def getxml(conn: HttpURLConnection) = {
     try {
       val xml = XML.load(conn.getInputStream)
       Console.println(new PrettyPrinter(80, 2).format(xml))
@@ -126,7 +196,7 @@ class S3(awsKeyId: String, awsSecretKey: String) extends Iterable[Bucket] {
   }
 
   def +=(name: String) = {
-    val conn = getconn("PUT", "", name.toLowerCase, "/", "")
+    val conn = getconn("PUT", name.toLowerCase, "/")
     conn.setRequestProperty("Content-Length", "0")
     if (conn.getResponseCode != 200)
       error("Error creating bucket '"+name+"': "+conn.getResponseMessage)
