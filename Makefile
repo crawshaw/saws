@@ -1,3 +1,8 @@
+ifdef RELEASE
+sflags := -deprecation -optimise
+else
+sflags := -deprecation
+endif
 
 version := 0.1
 
@@ -9,7 +14,7 @@ build/aws-$(version).jar: class
 
 class: $(wildcard src/*.scala)
 	@mkdir -p build
-	fsc -optimise -deprecation -sourcepath src -d build src/*.scala
+	fsc $(sflags) -sourcepath src -d build src/*.scala
 
 clean:
 	rm -rf build
