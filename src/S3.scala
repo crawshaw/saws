@@ -28,12 +28,28 @@ object HTTP {
     date(new java.util.Date())
 }
 
+abstract sealed trait ACL
+final case object Private                 extends ACL {
+  override def toString() = "private" }
+final case object PublicRead              extends ACL {
+  override def toString() = "public-read" }
+final case object PublicReadWrite         extends ACL {
+  override def toString() = "public-read-write" }
+final case object AuthenticatedRead       extends ACL {
+  override def toString() = "authenticated-read" }
+final case object BucketOwnerRead         extends ACL {
+  override def toString() = "bucket-owner-read" }
+final case object BucketOwnerFullControl  extends ACL {
+  override def toString() = "bucket-owner-full-control" }
+
 class Item(
-    bucket: Bucket,
-    name: String,
+    val bucket: Bucket,
+    val name: String,
     private var lastModified: Option[String],
     private var size: Option[Int]) {
   import java.io.InputStream
+
+  def this(bucket: Bucket, name: String) = this(bucket, name, None, None)
 
   def get(): InputStream = {
     val conn = bucket.s3.getconn("GET", bucket.name, "/"+name)
@@ -41,25 +57,30 @@ class Item(
     conn.getInputStream
   }
 
-  def set(in: String): Unit =
-    set(in.getBytes, "text/plain")
+  def mkString(): String = {
+    io.Source.fromInputStream(get).mkString
+  }
 
-  def set(in: InputStream): Unit =
-    set(in, "application/x-download")
-
+  def set(in: String): Unit = set(in, "text/plain")
+  def set(in: String, contentType: String): Unit = set(in.getBytes, contentType)
+  def set(in: InputStream): Unit = set(in, "application/x-download")
   def set(in: InputStream, contentType: String): Unit =
-    set(HTTP.readAll(in), contentType)
+    set(in, contentType, Private)
+  def set(in: InputStream, contentType: String, acl: ACL): Unit =
+    set(HTTP.readAll(in), contentType, acl)
+  def set(in: Array[Byte]): Unit = set(in, "application/x-download")
+  def set(in: Array[Byte], contentType: String): Unit =
+    set(in, contentType, Private)
 
-  def set(in: Array[Byte]): Unit =
-    set(in, "application/x-download")
-
-  def set(in: Array[Byte], contentType: String): Unit = {
+  def set(in: Array[Byte], contentType: String, acl: ACL): Unit = {
     val md5 = HTTP.md5(in)
     val conn = bucket.s3.getconn(
-      "PUT", contentType, md5, bucket.name, "/"+name, "")
+      "PUT", contentType, md5, bucket.name, "/"+name, "",
+      "x-amz-acl:"+acl.toString+"\n")
     conn.setRequestProperty("Content-Length", in.length.toString)
     conn.setRequestProperty("Content-MD5", md5)
     conn.setRequestProperty("Content-Type", contentType)
+    conn.setRequestProperty("x-amz-acl", acl.toString)
     conn.setFixedLengthStreamingMode(in.length)
     conn.setDoOutput(true)
     val out = conn.getOutputStream
@@ -71,15 +92,39 @@ class Item(
     out.close
   }
 
+  def delete() = {
+    val conn = bucket.s3.getconn("DELETE", bucket.name, "/"+name)
+    if (conn.getResponseCode != 200)
+      bucket.s3.getxml(conn)
+  }
+
   override def toString() = "Item("+name+")"
 }
 
 class Bucket(val s3: S3, val name: String) extends Iterable[Item] {
-  def apply(itemName: String) = {
-    new Item(this, itemName, None, None)
-  }
+  import java.io.{ File, InputStream, FileInputStream }
 
-  override def elements(): Iterator[Item] = {
+  def apply(itemName: String) =
+    new Item(this, itemName)
+
+  def ++= (kvs: Iterable[(String,String)]): Unit =
+    kvs map { case (k,v) => actors.Futures.future (+= (k,v)) } foreach { _() }
+
+  def += (itemName: String, src: String) =
+    new Item(this, itemName).set(src)
+  def += (itemName: String, src: String, contentType: String) =
+    new Item(this, itemName).set(src, contentType)
+  def += (itemName: String, src: InputStream, contentType: String, acl: ACL) =
+    new Item(this, itemName).set(src, contentType, acl)
+  def += (itemName: String, src: File, contentType: String, acl: ACL) =
+    new Item(this, itemName).set(new FileInputStream(src), contentType, acl)
+  def -= (itemName: String) =
+    new Item(this, itemName).delete
+
+  override def elements(): Iterator[Item] =
+    elements("")
+
+  def elements(prefix: String): Iterator[Item] = {
     def genItem(contents: xml.Node): Item = {
       new Item(
         this,
@@ -90,11 +135,8 @@ class Bucket(val s3: S3, val name: String) extends Iterable[Item] {
     }
 
     def sel(marker: Option[String]) = {
-      val qs = marker match {
-        case None       => ""
-        case Some(mkr)  => "?marker="+mkr
-      }
-      val conn = s3.getconn("GET", "", "", name, "/", qs)
+      val qs = "?prefix=" + prefix + marker.map("&marker="+_).getOrElse("")
+      val conn = s3.getconn("GET", "", "", name, "/", qs, "")
       s3.getxml(conn)
     }
 
@@ -135,10 +177,9 @@ class S3(awsKeyId: String, awsSecretKey: String) extends Iterable[Bucket] {
   import javax.crypto.spec.SecretKeySpec
   import xml._
 
-  private val encoding = "HmacSHA1"
-
   // RFC2104
   private def calcHMAC(data: String): String = {
+    val encoding = "HmacSHA1"
     val key = new SecretKeySpec(awsSecretKey.getBytes, encoding)
     val mac = Mac.getInstance(encoding)
     mac.init(key)
@@ -148,12 +189,13 @@ class S3(awsKeyId: String, awsSecretKey: String) extends Iterable[Bucket] {
 
   private def authorization(
       verb: String, contentMD5: String, contentType: String, date: String,
-      bucket: String, resource: String) = {
+      bucket: String, resource: String, amzHeaders: String) = {
     val toSign = (
       verb        + "\n" +
       contentMD5  + "\n" +
       contentType + "\n" +
       date        + "\n" +
+      amzHeaders  +
       "/" + bucket + resource
     )
     Console.println("signing: "+toSign)
@@ -162,17 +204,17 @@ class S3(awsKeyId: String, awsSecretKey: String) extends Iterable[Bucket] {
 
   private[zentus] def getconn(
       verb: String, bucket: String, resource: String): HttpURLConnection =
-    getconn(verb, "", "", bucket, resource, "")
+    getconn(verb, "", "", bucket, resource, "", "")
 
   private[zentus] def getconn(
       verb: String, contentType: String, contentMD5: String,
-      bucket: String, resource: String, querystring: String
-      ): HttpURLConnection = {
+      bucket: String, resource: String, querystring: String,
+      amzHeaders: String): HttpURLConnection = {
     val date = HTTP.now
     val url = "http://" + bucket + ".s3.amazonaws.com" + resource + querystring
     val conn = new URL(url).openConnection.asInstanceOf[HttpURLConnection]
     val auth = authorization(
-      verb, contentMD5, contentType, date, bucket, resource)
+      verb, contentMD5, contentType, date, bucket, resource, amzHeaders)
     conn.setRequestMethod(verb)
     conn.setRequestProperty("Date", date)
     conn.setRequestProperty("Authorization", auth)
@@ -209,7 +251,7 @@ class S3(awsKeyId: String, awsSecretKey: String) extends Iterable[Bucket] {
 
     val reqUrl = "http://s3.amazonaws.com"
     val conn = new URL(reqUrl).openConnection.asInstanceOf[HttpURLConnection]
-    val auth = authorization("GET", "", "", date, "", "")
+    val auth = authorization("GET", "", "", date, "", "", "")
     conn.setRequestProperty("Date", date)
     conn.setRequestProperty("Authorization", auth)
 
