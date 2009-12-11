@@ -1,6 +1,10 @@
 package com.zentus
 
-class AWS(domain: String, awsKeyId: String, awsSecretKey: String) {
+class AWS(
+    domain: String,
+    version: String,
+    awsKeyId: String,
+    awsSecretKey: String) {
   import java.net.{ URL, URLEncoder, HttpURLConnection }
   import java.text.SimpleDateFormat
   import java.util.{ Calendar, TimeZone }
@@ -35,7 +39,7 @@ class AWS(domain: String, awsKeyId: String, awsSecretKey: String) {
       "SignatureVersion"  -> "2",
       "SignatureMethod"   -> encoding,
       "Timestamp"         -> timestamp,
-      "Version"           -> "2009-02-01"
+      "Version"           -> version
     )
     val keys = fullAttrs.keys.toList.sort((e1,e2) => (e1 compareTo e2) < 0)
     val attrStr = keys.map(k =>

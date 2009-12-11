@@ -110,7 +110,8 @@ object SimpleDB {
 }
 
 class SimpleDB(private val awsKeyId: String, private val awsSecretKey: String) {
-  private def conn = new AWS("sdb.amazonaws.com", awsKeyId, awsSecretKey)
+  private def conn =
+    new AWS("sdb.amazonaws.com", "2009-04-15", awsKeyId, awsSecretKey)
 
   def get(domain: String): Domain =
     new Domain(conn, domain)
