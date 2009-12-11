@@ -58,11 +58,11 @@ class AWS(
   def request(path: String, attrs: Map[String,String]): xml.Elem = {
     import scala.xml._
     var reqUrl = url(path, attrs)
-    Console.println(formatUrl(reqUrl))
+    //Console.println(formatUrl(reqUrl))
     val conn = new URL(reqUrl).openConnection.asInstanceOf[HttpURLConnection]
     try {
       val xml = XML.load(conn.getInputStream)
-      Console.println(new PrettyPrinter(80, 2).format(xml))
+      //Console.println(new PrettyPrinter(80, 2).format(xml))
       xml
     } catch {
       case e =>

@@ -198,7 +198,7 @@ class S3(awsKeyId: String, awsSecretKey: String) extends Iterable[Bucket] {
       amzHeaders  +
       "/" + bucket + resource
     )
-    Console.println("signing: "+toSign)
+    //Console.println("signing: "+toSign)
     "AWS " + awsKeyId + ":" + calcHMAC(toSign)
   }
 
@@ -224,7 +224,7 @@ class S3(awsKeyId: String, awsSecretKey: String) extends Iterable[Bucket] {
   private[zentus] def getxml(conn: HttpURLConnection) = {
     try {
       val xml = XML.load(conn.getInputStream)
-      Console.println(new PrettyPrinter(80, 2).format(xml))
+      //Console.println(new PrettyPrinter(80, 2).format(xml))
       xml
     } catch {
       case e =>
@@ -255,19 +255,7 @@ class S3(awsKeyId: String, awsSecretKey: String) extends Iterable[Bucket] {
     conn.setRequestProperty("Date", date)
     conn.setRequestProperty("Authorization", auth)
 
-    try {
-      val xml = XML.load(conn.getInputStream)
-      //Console.println(new PrettyPrinter(80, 2).format(xml))
-      (xml \\ "Name") map { n => new Bucket(this, n.text) } elements
-    } catch {
-      case e =>
-        Console.println("exception: "+ conn.getResponseMessage)
-        Console.println(
-          scala.io.Source.fromInputStream(
-            conn.getErrorStream).getLines.mkString("\n")
-        )
-        throw e
-    }
+    (getxml(conn) \\ "Name") map { n => new Bucket(this, n.text) } elements
   }
 }
 
