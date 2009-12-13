@@ -98,7 +98,8 @@ class Queue(private val conn: AWS, val path: String) {
 }
 
 class SQS(private val awsKeyId: String, private val awsSecretKey: String) {
-  private def conn = new AWS("queue.amazonaws.com", awsKeyId, awsSecretKey)
+  private def conn =
+    new AWS("queue.amazonaws.com", "2009-02-01", awsKeyId, awsSecretKey)
 
   def apply(queueName: String): Queue = {
     val queues = (conn.request(Map(
