@@ -54,6 +54,13 @@ class Item(
   def get(): InputStream = {
     val conn = bucket.s3.getconn("GET", bucket.name, "/"+name)
     // TODO: set lastModified, size
+    if (conn.getResponseCode != 200) {
+      Console.println("exception: "+ conn.getResponseMessage)
+      Console.println(
+        io.Source.fromInputStream(conn.getErrorStream).getLines.mkString("\n")
+      )
+      // TODO: better error reporting, non-existant file, etc.
+    }
     conn.getInputStream
   }
 
@@ -198,7 +205,7 @@ class S3(awsKeyId: String, awsSecretKey: String) extends Iterable[Bucket] {
       amzHeaders  +
       "/" + bucket + resource
     )
-    //Console.println("signing: "+toSign)
+    Console.println("signing: "+toSign)
     "AWS " + awsKeyId + ":" + calcHMAC(toSign)
   }
 
@@ -211,7 +218,7 @@ class S3(awsKeyId: String, awsSecretKey: String) extends Iterable[Bucket] {
       bucket: String, resource: String, querystring: String,
       amzHeaders: String): HttpURLConnection = {
     val date = HTTP.now
-    val url = "http://" + bucket + ".s3.amazonaws.com" + resource + querystring
+    val url = "http://s3.amazonaws.com/" + bucket + resource + querystring
     val conn = new URL(url).openConnection.asInstanceOf[HttpURLConnection]
     val auth = authorization(
       verb, contentMD5, contentType, date, bucket, resource, amzHeaders)
@@ -224,7 +231,7 @@ class S3(awsKeyId: String, awsSecretKey: String) extends Iterable[Bucket] {
   private[zentus] def getxml(conn: HttpURLConnection) = {
     try {
       val xml = XML.load(conn.getInputStream)
-      //Console.println(new PrettyPrinter(80, 2).format(xml))
+      Console.println(new PrettyPrinter(80, 2).format(xml))
       xml
     } catch {
       case e =>
