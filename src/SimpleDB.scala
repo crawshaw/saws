@@ -179,12 +179,9 @@ class SimpleDB(private val awsKeyId: String, private val awsSecretKey: String) {
 
   /* Returns the single attribute of the single item selected by the query. */
   def selectOption(query: String): Option[String] = {
-    var res = select(query)
-    res.keys.collect.firstOption.flatMap(
-      itemName => res(itemName).keys.collect.firstOption.flatMap(
-        attrName => Some(res(itemName)(attrName))
-      )
-    )
+    selectIterable(query).flatMap(
+      { case (k,v) => v.values.collect }
+    ).toStream.firstOption
   }
 
   def selectNames(query: String): Iterable[String] = {
