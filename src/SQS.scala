@@ -1,4 +1,6 @@
-package com.zentus
+package com.zentus.sqs
+
+import com.zentus.AWS
 
 case class Message(
   val id: String,

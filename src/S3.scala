@@ -1,6 +1,6 @@
-package com.zentus
+package com.zentus.s3
 
-object HTTP {
+private[s3] object HTTP {
   def date(date: java.util.Date): String = {
     val sdf = new java.text.SimpleDateFormat("EEE, d MMM yyyy HH:mm:ss '+0000'")
     sdf.setTimeZone(java.util.TimeZone.getTimeZone("UTC"))
@@ -28,6 +28,7 @@ object HTTP {
     date(new java.util.Date())
 }
 
+package acl {
 abstract sealed trait ACL
 final case object Private                 extends ACL {
   override def toString() = "private" }
@@ -41,6 +42,8 @@ final case object BucketOwnerRead         extends ACL {
   override def toString() = "bucket-owner-read" }
 final case object BucketOwnerFullControl  extends ACL {
   override def toString() = "bucket-owner-full-control" }
+}
+import acl.ACL
 
 class Item(
     val bucket: Bucket,
@@ -72,12 +75,12 @@ class Item(
   def set(in: String, contentType: String): Unit = set(in.getBytes, contentType)
   def set(in: InputStream): Unit = set(in, "application/x-download")
   def set(in: InputStream, contentType: String): Unit =
-    set(in, contentType, Private)
+    set(in, contentType, acl.Private)
   def set(in: InputStream, contentType: String, acl: ACL): Unit =
     set(HTTP.readAll(in), contentType, acl)
   def set(in: Array[Byte]): Unit = set(in, "application/x-download")
   def set(in: Array[Byte], contentType: String): Unit =
-    set(in, contentType, Private)
+    set(in, contentType, acl.Private)
 
   def set(in: Array[Byte], contentType: String, acl: ACL): Unit = {
     val md5 = HTTP.md5(in)

@@ -1,4 +1,6 @@
-package com.zentus
+package com.zentus.simpledb
+
+import com.zentus.AWS
 
 import scala.xml.{ Elem, Node }
 

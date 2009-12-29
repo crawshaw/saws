@@ -19,18 +19,18 @@ package com.zentus
 object Base64 {
 
   // Mapping table from 6-bit nibbles to Base64 characters.
-  val map1 : Array[Char] = (
+  private val map1 = (
       ('A' to 'Z') ++ ('a' to 'z') ++ ('0' to '9')
-    ).toArray[Char] ++ Array('+', '/');
+  ).toArray[Char] ++ Array('+', '/')
 
   // Mapping table from Base64 characters to 6-bit nibbles.
-  val map2 = new Array[Byte](128);
+  private val map2 = new Array[Byte](128);
   {
     for (i <- 0 until map2.length) map2(i) = -1;
     for (i <- 0 until 64) map2(map1(i)) = i.toByte;
   }
 
-  def encodeString(s: String) : String =
+  def encode(s: String) : String =
     new String(encode(s.getBytes()))
 
   def encode(in: Array[Byte]) : Array[Char] =
@@ -65,9 +65,6 @@ object Base64 {
 
     out
   }
-
-  def decodeString(s : String) : String =
-    new String(decode(s))
 
   def decode(s : String) : Array[Byte] =
     decode(s.toCharArray())
