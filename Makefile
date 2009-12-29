@@ -16,5 +16,8 @@ class: $(wildcard src/*.scala)
 	@mkdir -p build
 	fsc $(sflags) -sourcepath src -d build src/*.scala
 
+doc:
+	scaladoc -sourcepath src -d build src/*.scala
+
 clean:
 	rm -rf build
