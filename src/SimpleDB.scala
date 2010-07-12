@@ -163,19 +163,24 @@ class SimpleDB(private val awsKeyId: String, private val awsSecretKey: String) {
       val ret = new collection.mutable.Queue[T]()
       var res = sel(query, None)
       var nextToken = res \\ "NextToken"
-      ret ++= f(res)
+      ret.enqueue(f(res): _*)
       override def hasNext =
         !ret.isEmpty || !nextToken.isEmpty
       override def next = {
-        if (ret.isEmpty) {
-          if (nextToken.isEmpty) {
-            error("Iterator is done.")
-          }
+        if (ret.isEmpty && nextToken.isEmpty)
+          error("Iterator is done.")
+        val v = ret.dequeue
+        if (ret.isEmpty && !nextToken.isEmpty) {
+          Console.println("nextToken.text:" + nextToken.text)
           res = sel(query, Some(nextToken.text))
+          Console.println("Src:" + res)
           nextToken = res \\ "NextToken"
-          ret ++= f(res)
+          Console.println("NextTok: " + nextToken)
+          val fres = f(res)
+          Console.println("f(res): " + fres)
+          ret.enqueue(fres: _*)
         }
-        ret.dequeue
+        v
       }
     }}
   }
